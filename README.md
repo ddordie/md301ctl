@@ -3,6 +3,9 @@
 不联网、不开浏览器，直接通过 HID 与鼠标（或 2.4G 接收器）通信，实现
 `https://gearlink.asus.com.cn/zh-cn`（Gear Link 网页版）里对 MD301 的设备设置功能。
 
+**不想自己编译**：到 [Releases](https://github.com/ddordie/md301ctl/releases)
+下载 `md301ctl.exe`，双击即用（Windows x64，单文件零依赖，无需 Rust 工具链）。
+
 协议是从 Gear Link 网页版的 JS 逆向出来的，并在真机上逐条读写验证过
 （读到 `hidtrace5b.json` 级别的原始报文对比）。
 
@@ -149,3 +152,8 @@ md301ctl battery --json
   或 ROG 8K 机型（P723/P724/P725/P728/P729/P731）用的，官方 JS 对 MD301 只给出 4 档。
   实测往本机型写 2000 能被存下来并读回，但那是"存了个值"，不代表真按 2000Hz 上报，
   官方页面也从不提供——所以本工具现在只允许这 4 档。
+
+## 许可证
+
+[MIT](LICENSE)。协议为独立逆向所得，与华硕（ASUS）无关联；本项目未包含任何
+官方代码或二进制资源。
