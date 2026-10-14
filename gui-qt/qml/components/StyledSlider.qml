@@ -7,10 +7,11 @@ Slider {
     id: root
     property int minValue: 100
     property int maxValue: 8000
+    property int step: 50
 
     from: minValue
     to: maxValue
-    stepSize: 50
+    stepSize: step
     implicitHeight: 26
 
     background: Rectangle {

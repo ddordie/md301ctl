@@ -69,7 +69,7 @@ md301ctl buttons map 左侧后键 中键          # 改按键映射（第一个�
 md301ctl buttons names                    # 列出全部可用功能码
 md301ctl profile set 2                    # 切换配置档
 md301ctl battery                          # 电量/充电/休眠/低电量阈值
-md301ctl power set --sleep 3 --low 15     # 休眠 5 分钟，低电量提醒 15%
+md301ctl power set --sleep 0-4|255 --low 0-100 3 --low 15     # 休眠 5 分钟，低电量提醒 15%
 md301ctl perf save                        # 写入 Flash 永久保存（断电保持）
 md301ctl monitor 30                       # 监听设备主动上报的事件
 ```

@@ -54,6 +54,10 @@ class Backend(QObject):
         self._state: dict[str, Any] = {}
         self._spec: dict[str, Any] = {}
         self._status = "正在连接设备…"
+        self._auto_poll = True          # 自动刷新开关
+        self._auto_reading = False      # 正在做一次静默的自动轮询
+        self._draft_sync = True         # 本次变化是否要同步到界面草稿（自动轮询不动草稿）
+        self._timer: QTimer | None = None
         self._error = False
         self._busy = False
         self._queue: list[tuple[list[str], Callable[[int, str, str], None] | None]] = []
@@ -62,6 +66,34 @@ class Backend(QObject):
         if not self.cli:
             self._status = "找不到 md301ctl.exe（设环境变量 MD301CTL 指向它，或先 cargo build --release）"
             self._error = True
+        else:
+            # 自动刷新：上一次没读到（设备休眠/拔了）就 2 秒一次，读到正常值就 10 秒一次。
+            # 只是"读"，不会写设备；设备仍由它自己的休眠计时决定何时睡。
+            self._timer = QTimer(self)
+            self._timer.setInterval(1500)
+            self._timer.timeout.connect(self._tick)
+            self._timer.start()
+
+    def _tick(self) -> None:
+        if not self._auto_poll or not self.cli:
+            return
+        if self._proc is not None or self._queue:
+            return          # 上一条还没跑完，别排队堆积
+        if self._error:
+            self._probe()   # 休眠中：只问一句最轻的（休眠时 info 仅 ~0.2 秒，status 要 3 秒）
+        else:
+            self.refresh(auto=True)
+
+    def _probe(self) -> None:
+        """轻探针：设备一醒就立刻做一次完整刷新，所以唤醒后界面会自己恢复。"""
+        self._auto_reading = True
+
+        def done(code: int, out: str, err: str) -> None:
+            self._auto_reading = False
+            if code == 0:
+                self.refresh(auto=True)
+
+        self._run(["info"], done)
 
     # ---------------- 属性（QML 读） ----------------
     def _get_state(self) -> dict:
@@ -88,11 +120,22 @@ class Backend(QObject):
 
     @Property(bool, notify=changed)
     def busy(self) -> bool:
-        return self._busy
+        # 自动轮询（静默读）不算忙，免得按钮每 10 秒灰一下
+        return self._busy and not self._auto_reading
 
     @Property(str, notify=changed)
     def cliPath(self) -> str:
         return self.cli or ""
+
+    @Property(bool, notify=changed)
+    def autoPoll(self) -> bool:
+        return self._auto_poll
+
+    @Property(bool, notify=changed)
+    def draftSync(self) -> bool:
+        """True = 这次状态变化来自用户主动操作（手动刷新/写入后），界面草稿可以覆盖；
+        自动轮询时为 False，免得把用户正在调的值冲掉。"""
+        return self._draft_sync
 
     # ---------------- 命令调度 ----------------
     def _run(self, args: list[str], done: Callable[[int, str, str], None] | None = None) -> None:
@@ -167,6 +210,7 @@ class Backend(QObject):
             return
 
         def done(code: int, out: str, err: str) -> None:
+            self._auto_reading = False
             data = self._parse(out)
             if code != 0 or data is None:
                 self._fail(err, "读取规格失败")
@@ -177,19 +221,26 @@ class Backend(QObject):
         self._run(["spec", "--json"], done)
 
     @Slot()
-    def refresh(self) -> None:
-        """实时状态快照。刷新**不会**写入设备。"""
+    def refresh(self, auto: bool = False) -> None:
+        """实时状态快照。刷新**不会**写入设备。auto=True 为定时器触发的自动轮询。"""
         if not self.cli:
             return
-        self._status = "读取中…"
-        self._error = False
-        self.changed.emit()
+        if auto:
+            # 自动轮询：安静地读，不动状态栏、不让按钮变灰
+            self._auto_reading = True
+        else:
+            self._draft_sync = True          # 用户主动刷新 → 允许覆盖界面草稿
+            self._status = "读取中…"
+            self._error = False
+            self.changed.emit()
 
         def done(code: int, out: str, err: str) -> None:
+            self._auto_reading = False
             data = self._parse(out)
             if code != 0 or data is None:
                 # 典型情况：设备射频休眠（Rust 侧已识别占位应答）
                 self._fail(err, "读取失败")
+                self._adapt_interval()
                 return
             self._state = data
             dev = data.get("device", {})
@@ -199,8 +250,17 @@ class Backend(QObject):
                 f" · 配置档 {dev.get('current_profile', '?')}/{dev.get('profile_count', '?')}"
             )
             self._error = False
+            self._adapt_interval()
 
         self._run(["status", "--json"], done)
+
+    def _adapt_interval(self) -> None:
+        self._auto_reading = False
+        """读数正常 → 10 秒一次；读不到（休眠/断开）→ 2 秒一次，唤醒后 2 秒内就能自己恢复。"""
+        if self._timer is not None:
+            want = 1500 if self._error else 10000
+            if self._timer.interval() != want:
+                self._timer.setInterval(want)
 
     # ---------------- 写（全部经 CLI，安全规则在 Rust 侧） ----------------
     def _write(self, args_list: list[list[str]], ok_msg: str, refresh_after: bool = True) -> None:
@@ -277,6 +337,15 @@ class Backend(QObject):
     @Slot()
     def resetFactory(self) -> None:
         self._write([["profile", "reset-all", "--yes"]], "已恢复出厂设置")
+
+    @Slot(bool)
+    def setAutoPoll(self, on: bool) -> None:
+        self._auto_poll = on
+        self._status = "自动刷新已开启（唤醒后自动恢复）" if on else "自动刷新已关闭，需要点「重新读取」"
+        self._error = False
+        self.changed.emit()
+        if on:
+            self.refresh()
 
     @Slot(int, int)
     def setSleep(self, index: int, low: int) -> None:

@@ -18,6 +18,8 @@ Window {
     property var dpiVals: []          // 空 = 尚未读到设备值
     property var btnCodes: ({})
     property int profileSel: 1
+    property int sleepSel: -1      // -1 = 还没从设备读到
+    property int lowSel: -1
     property bool confirmReset: false
 
     function specCaps() { return backend.spec && backend.spec.caps ? backend.spec.caps : ({}) }
@@ -36,11 +38,32 @@ Window {
         if (st.dpi && st.dpi.levels) win.dpiVals = st.dpi.levels.slice(0, 3)
         if (st.buttons) win.btnCodes = JSON.parse(JSON.stringify(st.buttons))
         if (st.device && st.device.current_profile) win.profileSel = st.device.current_profile
+        if (st.power) {
+            // 只在还没读到过时填，避免自动刷新把用户没应用的改动冲掉
+            if (win.sleepSel < 0) win.sleepSel = st.power.sleep_index
+            if (win.lowSel < 0) win.lowSel = st.power.low_power
+        }
+    }
+    function curSleepLabel() {
+        var p = stateOf().power
+        if (!p) return "—"
+        var sl = specCaps().sleep_times || []
+        for (var i = 0; i < sl.length; i++) if (sl[i].value === p.sleep_index) return sl[i].label
+        return "未知(" + p.sleep_index + ")"
+    }
+    function powerDirty() {
+        var p = stateOf().power
+        if (!p) return false
+        return (win.sleepSel >= 0 && win.sleepSel !== p.sleep_index)
+            || (win.lowSel >= 0 && win.lowSel !== p.low_power)
     }
 
     Connections {
         target: backend
-        function onChanged() { win.syncFromDevice() }
+        // 自动轮询时不覆盖草稿（否则会把你正在调的值冲掉）；首次读到数据时同步一次
+        function onChanged() {
+            if (backend.draftSync || win.dpiVals.length === 0) win.syncFromDevice()
+        }
     }
 
     ColumnLayout {
@@ -73,6 +96,11 @@ Window {
                     font.pixelSize: Theme.fontSmall
                 }
                 Item { Layout.fillWidth: true }
+                PillButton {
+                    text: backend.autoPoll ? "自动刷新：开" : "自动刷新：关"
+                    primary: backend.autoPoll
+                    onClicked: backend.setAutoPoll(!backend.autoPoll)
+                }
                 PillButton {
                     text: backend.busy ? "读取中…" : "重新读取"
                     enabled: !backend.busy
@@ -277,6 +305,92 @@ Window {
                             }
                         }
                         Item { Layout.fillWidth: true }
+                    }
+                }
+
+                // ── 电源（休眠时间 / 低电量提醒）
+                Card {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.pad
+                    Layout.rightMargin: Theme.pad
+                    title: "电源（休眠 / 低电量）"
+                    titleVisible: true
+                    spacing: 10
+
+                    Text {
+                        Layout.fillWidth: true
+                        color: Theme.sub
+                        font.pixelSize: Theme.fontBody
+                        wrapMode: Text.WordWrap
+                        text: {
+                            var p = stateOf().power
+                            if (!p) return "尚未读到设备电源信息"
+                            return "设备当前：休眠 " + win.curSleepLabel() + " · 低电量提醒 " + p.low_power + "%"
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.gap
+                        Text {
+                            text: "休眠时间"
+                            color: Theme.sub
+                            font.pixelSize: Theme.fontBody
+                            Layout.preferredWidth: 68
+                        }
+                        // 档位表来自官方 SleepTime（0/1/2/3/5/10 分钟 + 255 永不）
+                        Repeater {
+                            model: specCaps().sleep_times || []
+                            delegate: PillButton {
+                                property var opt: modelData
+                                property bool cur: stateOf().power !== undefined
+                                                   && stateOf().power.sleep_index === opt.value
+                                text: opt.label
+                                primary: cur
+                                enabled: !backend.busy && win.hasState() && !cur
+                                onClicked: if (!cur) backend.setSleep(opt.value, win.lowSel >= 0 ? win.lowSel : 20)
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.gap
+                        Text {
+                            text: "低电量提醒"
+                            color: Theme.sub
+                            font.pixelSize: Theme.fontBody
+                            Layout.preferredWidth: 68
+                        }
+                        StyledSlider {
+                            id: lowSl
+                            Layout.fillWidth: true
+                            minValue: specCaps().low_power_min !== undefined ? specCaps().low_power_min : 0
+                            maxValue: specCaps().low_power_max !== undefined ? specCaps().low_power_max : 100
+                            step: 5
+                            enabled: win.hasState()
+                            value: win.lowSel >= 0 ? win.lowSel : 20
+                            onMoved: win.lowSel = Math.round(value / step) * step
+                            // 松手才写，拖动过程中不刷设备
+                            onPressedChanged: if (!pressed && win.hasState() && win.lowSel >= 0)
+                                                  backend.setSleep(win.sleepSel >= 0 ? win.sleepSel : 1, win.lowSel)
+                        }
+                        Text {
+                            text: (win.lowSel >= 0 ? win.lowSel : "—") + "%"
+                            color: Theme.fg
+                            font.pixelSize: 15
+                            horizontalAlignment: Text.AlignRight
+                            Layout.preferredWidth: 52
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        color: Theme.sub
+                        font.pixelSize: Theme.fontSmall
+                        wrapMode: Text.WordWrap
+                        text: "点选即写入设备；改动只在点「保存到 Flash」后才断电保持（官方档位：1/2/3/5/10 分钟与「永不」）。"
                     }
                 }
 

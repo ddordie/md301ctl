@@ -546,7 +546,7 @@ fn jesc(s: &str) -> String {
 fn cmd_spec_json() -> std::io::Result<()> {
     let mut s = String::from("{\"caps\":{");
     s.push_str(&format!(
-        "\"dpi_min\":{},\"dpi_max\":{},\"dpi_levels\":{},\"dpi_step\":50",
+        "\"dpi_min\":{},\"dpi_max\":{},\"dpi_levels\":{},\"dpi_step\":50,\"low_power_min\":0,\"low_power_max\":100",
         proto::DPI_MIN,
         proto::DPI_MAX,
         proto::DPI_LEVELS
@@ -566,13 +566,22 @@ fn cmd_spec_json() -> std::io::Result<()> {
         s.push_str(&format!("{{\"value\":{},\"ms\":{}}}", v, ms));
     }
     s.push_str("],\"sleep_times\":[");
-    for i in 0..5u8 {
+    // 官方 SleepTime 表：0/1/2/3/5/10 分钟 + 255=永不（用干净的标签，值在独立字段里）
+    for (i, (v, label)) in SLEEP_LABELS.iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
-        s.push_str(&format!("{{\"value\":{},\"label\":\"{}\"}}", i, jesc(&sleep_label(i))));
+        s.push_str(&format!("{{\"value\":{},\"label\":\"{}\"}}", v, jesc(label)));
     }
     s.push(']');
+    s.push_str(",\"battery_types\":[");
+    for (i, (v, label)) in BATTERY_TYPES.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!("{{\"value\":{},\"label\":\"{}\"}}", v, jesc(label)));
+    }
+    s.push_str("]");
     s.push_str("},\"buttons\":[");
     // 名字取自 proto::BUTTON_TABLE（与 buttons map 能解析的名字同一张表）
     for (i, (name, code)) in proto::BUTTON_TABLE.iter().enumerate() {
