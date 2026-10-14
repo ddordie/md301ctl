@@ -47,8 +47,13 @@ ComboBox {
             leftPadding: 11
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
-            text: model && model.label !== undefined ? model.label : ""
-            color: row.highlighted ? Theme.fg : Theme.sub
+            // 兼容两种 model：对象数组取 label，纯值数组取 modelData
+            text: (combo.currentIndex === index ? "✓ " : "") +
+                  (model && model.label !== undefined ? model.label
+                   : (modelData !== undefined ? modelData : ""))
+            // 悬停/键盘高亮 = 亮白；当前选中项 = 强调色（否则看不出哪项是当前值）
+            color: row.highlighted ? Theme.fg
+                 : (combo.currentIndex === index ? Theme.accent : Theme.sub)
             font.pixelSize: Theme.fontBody
         }
         background: Rectangle {

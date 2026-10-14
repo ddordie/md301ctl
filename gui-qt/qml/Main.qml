@@ -371,13 +371,26 @@ Window {
                         DarkCombo {
                             id: prof
                             Layout.preferredWidth: 150
+                            placeholder: "读取中…"
+                            textRole: "label"        // 框里显示的文本：没有它，对象数组的框会是空的
+                            // 用 {n,label} 对象数组：下拉项的文本走 label 角色
                             model: {
                                 var n = stateOf().device ? stateOf().device.profile_count : 0
                                 var a = []
-                                for (var i = 1; i <= n; i++) a.push(i)
+                                for (var i = 1; i <= n; i++) a.push({ n: i, label: "配置档 " + i })
                                 return a
                             }
-                            Component.onCompleted: currentIndex = win.profileSel - 1
+                            // 设备当前档（model 后到，所以要在 model/计数变化时再同步一次）
+                            property int devProfile: stateOf().device
+                                                      ? stateOf().device.current_profile : 0
+                            function syncIndex() {
+                                if (devProfile <= 0) { currentIndex = -1; return }
+                                currentIndex = devProfile - 1
+                                win.profileSel = devProfile
+                            }
+                            onDevProfileChanged: syncIndex()
+                            onCountChanged: syncIndex()
+                            Component.onCompleted: syncIndex()
                             onActivated: win.profileSel = currentIndex + 1
                         }
                         PillButton {
