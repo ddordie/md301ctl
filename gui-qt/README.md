@@ -122,8 +122,8 @@ uv pip install --python .venv/Scripts/python.exe pyinstaller
 - 重新生成（改了 SVG 之后）：
   `scripts/gen_assets.py assets/logo.svg assets/logo-256.png assets/logo.ico`
   （脚本在仓库根的 `scripts/`，用 QtSvg 渲染，ICO 容器自己拼，不需要 Pillow）
-- 图标是白底方块，所以在暗色标题栏里放在**白色圆角徽章**中（`qml/Main.qml` 顶部）；
-  QML 里用 `sourceSize: Qt.size(68, 68)` 做 2x 光栅化，边缘才不糊。
+- 图标只用在**窗口/任务栏图标**与 exe 内嵌图标上；标题栏里不再显示 logo
+  （曾经放过白色圆角徽章，截图不好看，已按要求去掉）。
 - **许可边界**：`assets/` 下的图标为用户提供，不在本项目 MIT 许可范围内；
   ProArt / ASUS 等名称与标识的权利归其所有者。
 
