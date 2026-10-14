@@ -185,6 +185,11 @@ def strip_for_background(src: str, dst: str) -> tuple[int, list[str]]:
                     el.remove(ch); removed += 1
 
     walk(root, (1, 0, 0, 1, 0, 0))
+    # 设计稿的字体名是 Illustrator 的内部名（SourceHanSansCN-Medium-GBpc-EUC-H），
+    # 本机没有就会被 Qt 回退成宋体（衬线），整层文字和 QML 对不上 → 统一成 Theme.font
+    txt = ET.tostring(root, encoding="unicode")
+    txt = re.sub(r"font-family:'[^']*SourceHan[^']*'", "font-family:'Microsoft YaHei UI'", txt)
+    root = ET.fromstring(txt)
     for el in root.iter():               # 设计稿把标题写成了 AUSU，顺手修正
         if _tag(el) == "text" and el.text and "AUSU" in el.text:
             el.text = el.text.replace("AUSU", "ASUS")

@@ -260,9 +260,8 @@ Window {
     }
     // 电量百分比 + 电池图标
     Text {
-        x: 1150
-        y: 46
-        width: 38
+        x: 1167.6
+        y: 43.1
         text: (st().power && st().power.battery !== undefined) ? st().power.battery + "%" : "—"
         color: Theme.text
         font.family: Theme.font
@@ -407,8 +406,8 @@ Window {
         }
     }
     Text {
-        x: 787
-        y: 273
+        x: 774.7
+        y: 307.4
         text: "DPI挡位范围 " + (caps().dpi_min !== undefined ? caps().dpi_min : 100) + "-" + (caps().dpi_max !== undefined ? caps().dpi_max : 8000)
         color: Theme.muted
         font.family: Theme.font
@@ -501,8 +500,8 @@ Window {
         }
     }
     Text {
-        x: 1190
-        y: 612
+        x: 1199.9
+        y: 609.5
         text: (win.lowDraft >= 0 ? win.lowDraft : 0) + "%"
         color: Theme.muted
         font.family: Theme.font
