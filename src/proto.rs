@@ -246,15 +246,17 @@ pub fn func_name(code: u16) -> String {
 }
 
 /// 鼠标上真实存在的可控按键（名字 → 物理功能码），与 `KeyMap::entries` 一致。
-pub const BUTTON_TABLE: [(&str, u16); 8] = [
+pub const BUTTON_TABLE: [(&str, u16); 10] = [
     ("左键", 0x1F0),
     ("右键", 0x1F1),
-    ("中键", 0x1F2),
-    ("左侧后键", 0x1E4),
-    ("左侧前键", 0x1E5),
+    ("滚轮点击", 0x1F2),
+    ("侧键后退", 0x1E4),
+    ("侧键前进", 0x1E5),
     ("DPI 切换键", 0x1E6),
-    ("滚轮上滚", 0x1E8),
-    ("滚轮下滚", 0x1E9),
+    ("向上滚动", 0x1E8),
+    ("向下滚动", 0x1E9),
+    ("向左滚动", 0x1EE),
+    ("向右滚动", 0x1EF),
 ];
 
 /// 解析"按键"参数（`buttons map <按键> <功能>` 的第一个参数）。
@@ -273,14 +275,15 @@ pub fn find_button(spec: &str) -> Option<u16> {
     let alias = match s.to_lowercase().as_str() {
         "左" => "左键",
         "右" => "右键",
-        "中" | "中键按" => "中键",
-        "左后侧键" | "左后键" => "左侧后键",
-        "左前侧键" | "左前键" => "左侧前键",
+        "中" | "中键" | "中键按" => "滚轮点击",
+        "左侧后键" | "左后侧键" | "左后键" => "侧键后退",
+        "左侧前键" | "左前侧键" | "左前键" => "侧键前进",
         "dpi切换" | "dpi键" | "dpi 键" => "DPI 切换键",
-        "上滚" | "滚轮上" => "滚轮上滚",
-        "下滚" | "滚轮下" => "滚轮下滚",
-        "侧键5" | "侧键 5" => return Some(0x1EE),
-        "侧键6" | "侧键 6" => return Some(0x1EF),
+        "上滚" | "滚轮上" | "滚轮上滚" => "向上滚动",
+        "下滚" | "滚轮下" | "滚轮下滚" => "向下滚动",
+        "侧键1" | "侧键2" | "侧键3" | "侧键4" | "侧键 1" | "侧键 2" | "侧键 3" | "侧键 4" => return None,
+        "侧键5" | "侧键 5" | "侧滚轮左" => "向左滚动",
+        "侧键6" | "侧键 6" | "侧滚轮右" => "向右滚动",
         _ => s,
     };
     // 精确 → 忽略大小写 → 子串
@@ -398,12 +401,12 @@ impl KeyMap {
         [
             ("左键", self.left_button),
             ("右键", self.right_button),
-            ("中键", self.middle_button),
-            ("左侧后键", self.side_left_backward),
-            ("左侧前键", self.side_left_forward),
+            ("滚轮点击", self.middle_button),
+            ("侧键后退", self.side_left_backward),
+            ("侧键前进", self.side_left_forward),
             ("DPI 切换键", self.dpi1),
-            ("滚轮上滚", self.scroll_up),
-            ("滚轮下滚", self.scroll_down),
+            ("向上滚动", self.scroll_up),
+            ("向下滚动", self.scroll_down),
         ]
     }
 }
@@ -413,6 +416,14 @@ pub struct ExtKeyMap {
     pub side_right_backward: u16,
     pub side_right_forward: u16,
     pub side: [u16; 6],
+}
+
+impl ExtKeyMap {
+    /// 侧边滚轮的两个方向（扩展表里的 `sideKey5`/`sideKey6`，偏移 16/18）。
+    /// 设备实测：这两个槽位上电默认值就是 494/495（MouseSideKey5/6）。
+    pub fn side_wheel(&self) -> [(&'static str, u16); 2] {
+        [("向左滚动", self.side[4]), ("向右滚动", self.side[5])]
+    }
 }
 
 #[derive(Debug, Clone)]

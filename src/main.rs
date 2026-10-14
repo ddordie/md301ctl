@@ -612,6 +612,7 @@ fn cmd_status_json(dev: &mut Md301) -> std::io::Result<()> {
     let info = dev.info()?;
     let pw = dev.power()?;
     let pf = dev.performance()?;
+    let ext = dev.ext_key_map().ok();
     let sensor = dev.sensor_mode().ok(); // 传感器模式要单独读；不支持时给 null
     let base = dev.key_map()?;
     let mut s = String::from("{\"device\":{");
@@ -659,11 +660,24 @@ fn cmd_status_json(dev: &mut Md301) -> std::io::Result<()> {
         sensor.map(|(_, f)| f).unwrap_or(false)
     ));
     s.push_str("},\"buttons\":{");
-    for (i, (name, code)) in base.entries().iter().enumerate() {
-        if i > 0 {
+    // 十个可控按键：基础表 8 个 + 扩展表里侧边滚轮的左右（sideKey5/6，偏移 16/18）
+    let mut bi = 0;
+    for (name, code) in base.entries().iter() {
+        if bi > 0 {
             s.push(',');
         }
+        bi += 1;
         s.push_str(&format!("\"{}\":{}", jesc(name), code));
+    }
+    for (name, val) in [
+        ("向左滚动", ext.as_ref().map(|e| e.side[4])),
+        ("向右滚动", ext.as_ref().map(|e| e.side[5])),
+    ] {
+        s.push(',');
+        match val {
+            Some(v) => s.push_str(&format!("\"{}\":{}", jesc(name), v)),
+            None => s.push_str(&format!("\"{}\":null", jesc(name))),
+        }
     }
     s.push_str("}}");
     println!("{}", s);
@@ -814,44 +828,42 @@ fn cmd_buttons(dev: &mut Md301, json: bool) -> std::io::Result<()> {
     let base = dev.key_map()?;
     let ext = dev.ext_key_map().ok();
     let add = dev.add_key_map().ok();
+    // 十个可控按键：基础表 8 个 + 扩展表里侧边滚轮的左右（sideKey5/6）。
+    // 扩展表读不到时这两个值给 null，界面上显示 “—”，不影响其余八项。
+    let mut rows: Vec<(&'static str, Option<u16>)> =
+        base.entries().iter().map(|(n, c)| (*n, Some(*c))).collect();
+    match &ext {
+        Some(e) => {
+            for (n, c) in e.side_wheel() {
+                rows.push((n, Some(c)));
+            }
+        }
+        None => {
+            rows.push(("向左滚动", None));
+            rows.push(("向右滚动", None));
+        }
+    }
     if json {
-        let mut s = String::from("{\"basic\":{");
-        for (i, (name, code)) in base.entries().iter().enumerate() {
+        let mut s = format!("{{\"extReadOk\":{},\"buttons\":{{", ext.is_some());
+        for (i, (name, code)) in rows.iter().enumerate() {
             if i > 0 {
                 s.push(',');
             }
-            s.push_str(&format!("\"{}\":{}", name, code));
+            match code {
+                Some(c) => s.push_str(&format!("\"{}\":{}", name, c)),
+                None => s.push_str(&format!("\"{}\":null", name)),
+            }
         }
         s.push_str("}}");
         println!("{}", s);
         return Ok(());
     }
-    println!("基础按键映射:");
-    for (name, code) in base.entries() {
-        println!("  {:<12} → {}", name, func_name(code));
-    }
-    if let Some(e) = ext {
-        let mut any = false;
-        let mut lines = Vec::new();
-        if e.side_right_backward != 0 {
-            lines.push(format!("  {:<12} → {}", "右侧后键", func_name(e.side_right_backward)));
+    println!("按键映射:");
+    for (name, code) in rows.iter() {
+        match code {
+            Some(c) => println!("  {:<12} → {}", name, func_name(*c)),
+            None => println!("  {:<12} → （扩展表读取失败）", name),
         }
-        if e.side_right_forward != 0 {
-            lines.push(format!("  {:<12} → {}", "右侧前键", func_name(e.side_right_forward)));
-        }
-        for (i, c) in e.side.iter().enumerate() {
-            if *c != 0 {
-                lines.push(format!("  {:<12} → {}", format!("侧键{}", i + 1), func_name(*c)));
-            }
-        }
-        if !lines.is_empty() {
-            any = true;
-            println!("扩展按键映射:");
-            for l in lines {
-                println!("{}", l);
-            }
-        }
-        let _ = any;
     }
     if let Some(a) = add {
         if a.dpi2 != 0 {

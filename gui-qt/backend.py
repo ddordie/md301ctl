@@ -243,12 +243,9 @@ class Backend(QObject):
                 self._adapt_interval()
                 return
             self._state = data
-            dev = data.get("device", {})
-            pw = data.get("power", {})
-            self._status = (
-                f"已连接 · 固件 {dev.get('version', '?')} · 电量 {pw.get('battery', '?')}%"
-                f" · 配置档 {dev.get('current_profile', '?')}/{dev.get('profile_count', '?')}"
-            )
+            # 读数成功不刷状态栏（新界面顶栏只报「已连接/未连接」，底部只显示写操作结果与错误）
+            if self._status == "读取中…":
+                self._status = ""
             self._error = False
             self._adapt_interval()
 
@@ -281,7 +278,8 @@ class Backend(QObject):
                     self._status = ok_msg
                     self._error = False
                     if refresh_after:
-                        self.refresh()
+                        # 静默刷新：保住刚写的提示文案，不要被「读取中…」冲掉
+                        self.refresh(auto=True)
             return done
 
         for i, args in enumerate(args_list):

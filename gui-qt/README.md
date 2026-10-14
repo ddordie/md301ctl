@@ -64,22 +64,56 @@ md301ctl spec --json     # 静态规格，启动取一次，不碰设备
 # { "caps": {...}, "sleep_times": [...], "buttons": [{name, code}...], "functions": [{code,label}...] }
 
 md301ctl status --json   # 实时快照，一次调用一个对象
-# { "device": {...}, "power": {...}, "dpi": {...}, "perf": {...}, "buttons": {...} }
+# { "device": {...}, "power": {...}, "dpi": {...}, "perf": {...},
+#   "buttons": { "左键":496, ..., "向左滚动":494, "向右滚动":495 } }   ← 10 个槽位
 ```
+`buttons` 里的 10 个槽位 = 基础表 8 个 + 扩展表里侧边滚轮的左右（协议里的 `sideKey5/6`，
+偏移 16/18）。扩展表读不到时这两个键给 `null`，界面显示 `—`，不影响其余八项。
 
 写操作分别是 `dpi set <档> <值>`、`dpi switch <档>`、`perf polling <hz>`、
 `perf response <0-5>`、`buttons map <按键名> <功能码>`、`profile set <档>`、
 `perf save`、`profile reset-all --yes`。
 
-## 怎么让它变成"你的设计"
+## 界面结构（按设计稿还原）
 
-FigCraft 画的原型 → 导出 → 我照它改：
+设计稿（1280×720 画布）拆成两层：
 
-1. **导出设计**：`.figcraft` 文件（就是普通归档，可以直接解出颜色/尺寸/文字），
-   或者从 FigCraft 里导出 PNG（2x）/SVG；
-2. **换 token**：颜色/圆角/间距/字号 → `qml/theme/Theme.qml`；
-3. **重排布局**：`qml/Main.qml` 的卡片顺序与内部结构（组件都已经参数化）；
+| 层 | 内容 | 位置 |
+|---|---|---|
+| 静态层 | 卡片底、鼠标插画、引线、水印、面板标题、行标签 | `assets/ui-bg.svg` + `assets/ui-bg.png`（2x） |
+| 动态层 | 所有会随设备状态变化的东西：胶囊、滑条、数值、指示灯、下拉箭头、按钮 | `qml/Main.qml` 按坐标绝对摆放 |
+
+坐标表在 `qml/proto.js`（10 个映射胶囊、三张卡片的行/胶囊/按钮坐标都从设计稿量出来的）。
+颜色/圆角/字号全部集中在 `qml/theme/Theme.qml`。
+
+### 换一份设计稿 / 重新生成背景层
+
+```bash
+# 1) 从设计稿 SVG 删掉「由 QML 负责画」的元素，得到静态背景层
+python scripts/extract_proto.py /path/to/prototype.svg assets/ui-bg.svg
+# 2) 渲染成 2x PNG（QML 里用 Image.Stretch 铺满 1280×720）
+python ../AppData/Local/hermes/cache/scratch/render_svg.py assets/ui-bg.svg assets/ui-bg.png 2560 1440
+```
+
+三个必须注意的坑（都踩过）：
+
+1. **别让两边都画同一个东西**：设计稿里画了胶囊/手柄，QML 又画一遍 → 重影。
+   `extract_proto.py` 的 `SHAPE_DROP` / `LINE_DROP` / `TEXT_DROP` 就是干这个的。
+2. **SVG 的 `<text y>` 是基线，Qt 的 `Text.y` 是顶边**，换算要减 12–15px，否则文字会骑在卡片分隔线上。
+3. **槽位名要对上**：设计稿写「DPI切换」，CLI 的槽位名是「DPI 切换键」——
+   `Main.qml` 的 `comboPos()` 忽略空格匹配，避免落到兜底坐标。
+
+### 怎么让它变成"你的设计"
+
+1. **导出设计**：SVG（**文字保留**，不用转曲；要原样嵌入的素材才转曲）+ 同尺寸 2x PNG；
+2. **换 token**：颜色/圆角/字号 → `qml/theme/Theme.qml`；
+3. **重排布局**：改 `qml/proto.js` 坐标或 `qml/Main.qml`；
 4. **自检 + 截图对照**：`smoke.py` 保证链路没坏，截图和原型逐屏比对。
+
+字体：设计稿用 **思源黑体 Medium**（`SourceHanSansCN-Medium`），本机没装思源，
+`Theme.font` 回退到 **微软雅黑**（字宽接近，布局不变）。要完全一致就把思源字体配上或改这一行。
+另外 SVG 里的 `<filter>`（投影/发光）Qt 会**静默忽略**，需要的话得在 QML 里用
+`MultiEffect`/`DropShadow` 补。
 
 ## 自动刷新（唤醒后界面会自己恢复）
 
@@ -95,8 +129,9 @@ FigCraft 画的原型 → 导出 → 我照它改：
 
 - 轮询**只读不写**，不会碰设备设置；设备仍按它自己的休眠计时睡觉（无软件唤醒命令，只能动鼠标）。
 - 读数正常时用 `status`，休眠时改用 `info`——因为休眠时 `status` 要 3.0 秒（里面是多次子读取），`info` 只要 0.17 秒。
-- 自动轮询**不会覆盖界面草稿**：正在拖的滑块、没点「应用」的改动不会被后台刷新冲掉（只有手动刷新/写入后才同步草稿）。
-- 顶部「自动刷新」按钮可随时关掉；上一次命令没跑完时这次轮询直接跳过，不排队堆积。
+- 自动轮询**不会覆盖界面草稿**：草稿与设备值比对，谁被改了谁的草稿就保留（拖到一半的滑块、没点「应用」的改动不会被冲掉）。
+- 自动刷新**始终开启**（界面上没有开关）；上一次命令没跑完时这次轮询直接跳过，不排队堆积。
+- 读数成功不往状态栏写字（顶栏只报「已连接 / 未连接」）；底部那行只在写操作成功或出错时出现，8 秒后自动淡出。
 
 ## 电源（休眠 / 低电量）
 
