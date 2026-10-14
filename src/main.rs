@@ -103,7 +103,8 @@ const HELP: &str = r#"md301ctl —— 华硕 ProArt MD301 鼠标离线配置工�
   * 鼠标射频休眠时不会正常应答（只回占位数据）。移动或点击鼠标唤醒后再执行命令。
   * 修改后若需断电保持，请执行 "md301ctl perf save" 或 "md301ctl profile save"。
   * DPI 编码步进为 50，即 DPI 必须是 50 的倍数（如 400 800 1200 1600 2000）。
-"#;
+  * 版本：md301ctl --version
+  "#;
 
 fn main() -> ExitCode {
     // 让 `md301ctl status | head` 这类提前关闭管道的用法安静退出，而不是打印 panic
@@ -126,6 +127,10 @@ fn main() -> ExitCode {
     }
     if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
         println!("{}", HELP);
+        return ExitCode::SUCCESS;
+    }
+    if args[0] == "-V" || args[0] == "--version" || args[0] == "version" {
+        println!("md301ctl {}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
     let json = args.iter().any(|a| a == "--json");
