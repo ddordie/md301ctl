@@ -9,6 +9,9 @@
 协议是从 Gear Link 网页版的 JS 逆向出来的，并在真机上逐条读写验证过
 （读到 `hidtrace5b.json` 级别的原始报文对比）。
 
+界面有两套：默认的零依赖 Win32 窗口（就是 exe 里那个），以及 [gui-qt/](gui-qt/)
+下用 PySide6 + QML 重写的版本（协议同一份实现，Qt 只当壳——方便照设计稿做界面）。
+
 ## 为什么需要它
 
 官方网页版必须联网（要下载对应 PID 的协议模块并校验），没网就改不了 DPI／按键。
@@ -31,7 +34,7 @@ cargo build --release
 > 是该 shell 的小写 `tmp` 环境变量被 MSYS 路径污染，用：
 > `env -u tmp TMP='C:\Users\<你>\AppData\Local\Temp' cargo build --release`
 
-## 图形界面（日常用这个）
+## 图形界面（Windows 原生版，日常用这个）
 
 直接**双击 `md301ctl.exe`**，或运行 `md301ctl gui`，会开一个窗口：
 
@@ -60,7 +63,9 @@ md301ctl dpi set 2 1600                   # 把第 2 档改成 1600（50 的倍�
 md301ctl perf response 5                  # 按键响应 32ms（0–5 = 12/16/20/24/28/32 ms）
 md301ctl dpi switch 2                     # 立即切到第 2 档
 md301ctl perf polling 1000                # 回报率 125/250/500/1000（MD301 只有这 4 档）
-md301ctl buttons map 左后侧键 中键          # 改按键映射（名称或 0x1F2 这样的功能码）
+md301ctl buttons map 左侧后键 中键          # 改按键映射（第一个参数是设备上的按键，见 `buttons`
+                                          # 输出的左键/右键/中键/左侧后键…，或 0x1F0 代码；
+                                          # 第二个参数是功能码，见 `buttons names`）
 md301ctl buttons names                    # 列出全部可用功能码
 md301ctl profile set 2                    # 切换配置档
 md301ctl battery                          # 电量/充电/休眠/低电量阈值
@@ -75,6 +80,17 @@ md301ctl monitor 30                       # 监听设备主动上报的事件
 md301ctl battery --json
 {"battery":63,"charging":false,"sleep_index":1,"low_power":20,...}
 ```
+
+前端（`gui-qt/`）只依赖两条命令：
+
+```bash
+md301ctl spec --json      # 静态规格：能力表 + 休眠档 + 按键名 + 156 个功能码（不碰设备，<0.1s）
+md301ctl status --json    # 实时快照：device/power/dpi/perf/buttons 一个对象一次给全（约 0.7–2s）
+```
+
+> 耗时说明：`status` 早期要 7.3 秒，原因是设备**不支持**的查询（传感器模式、附加按键表）
+> 也会走 4 轮重试，白等 ~5.8 秒。现在这类探测型读取只试一次、超时 600ms，
+> `perf` 6.1s→0.9s、`buttons` 6.4s→1.4s、`status` 7.3s→0.7–2.1s。
 
 ## MD301 实际支持的设置
 
@@ -98,11 +114,14 @@ md301ctl battery --json
 
 ## 后续打算
 
-- 界面（现在的零依赖 Win32 窗口）只求能用，**以后想用 Qt 重做一个**。
-  落地路径参考：本机 `crates.io` 不通，所以 Rust 的 Qt 绑定（cxx-qt 等）暂时装不了；
-  但 `pip`/PyPI 是通的，**PySide6 可以装**。届时无需重新逆向协议——
-  CLI 已支持 `--json`（`info`/`dpi`/`perf`/`battery`/`buttons` 等），Qt 前端可以直接
-  当薄壳调用 `md301ctl ... --json`，或用 `.venv` 里已装好的 `hidapi` 直接讲协议。
+- **Qt 界面已经起了个头**（`gui-qt/`，PySide6 + QML）：协议不重写，全部经
+  `md301ctl.exe --json` 转发，所以休眠守门、只在值变化时写入这些规则继续生效。
+  界面照设计稿重排时，颜色/间距只改 `gui-qt/qml/theme/Theme.qml` 一处。
+  想做设计稿可用 FigCraft（`.figcraft` 是普通归档，能直接解出颜色尺寸），
+  导出 PNG/SVG 后照着实现。
+- Rust 侧 Qt 绑定（cxx-qt）暂时装不了：本机 `~/.cargo/config.toml` 把 crates.io
+  替换成了连不上的 rsproxy 镜像。要用的话得改这个全局配置（改回官方 index 即可）。
+- 命令行界面（现在的零依赖 Win32 窗口）继续保留：不装 Python 也能用。
 
 ## 协议要点（逆向所得）
 

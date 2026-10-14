@@ -59,6 +59,7 @@ const HELP: &str = r#"md301ctl —— 华硕 ProArt MD301 鼠标离线配置工�
   list                          列出本机检测到的 ASUS HID 接口
   info                          设备信息（固件版本 / 配置档 / 当前 DPI）
   status                        一次性输出 info + battery + perf + buttons
+  spec                          [--json] 静态规格：能力表 + 全部功能码（GUI 用）
 
   battery                       电量、充电状态、休眠与低电量设置
   power set [选项]              修改电源设置
@@ -177,15 +178,20 @@ fn run(argv: &[String], json: bool) -> std::io::Result<()> {
     match cmd {
         "info" => return cmd_info(&mut dev, json),
         "status" => {
-            cmd_info(&mut dev, json)?;
+            if json {
+                // GUI 契约：一次调用、一个对象（多块 JSON 前端没法可靠解析）
+                return cmd_status_json(&mut dev);
+            }
+            cmd_info(&mut dev, false)?;
             println!();
-            cmd_battery(&mut dev, json)?;
+            cmd_battery(&mut dev, false)?;
             println!();
-            cmd_perf(&mut dev, json)?;
+            cmd_perf(&mut dev, false)?;
             println!();
-            cmd_buttons(&mut dev, json)?;
+            cmd_buttons(&mut dev, false)?;
             Ok(())
         }
+        "spec" => return cmd_spec_json(),
         "battery" => cmd_battery(&mut dev, json),
         "power" => match rest.first().map(|s| s.as_str()) {
             Some("set") => cmd_power_set(&mut dev, &rest[1..]),
@@ -390,11 +396,11 @@ fn run(argv: &[String], json: bool) -> std::io::Result<()> {
                 if rest.len() < 3 {
                     return need_more("buttons map <按键> <功能>");
                 }
-                let button = find_func(&rest[1]).ok_or_else(|| {
+                let button = proto::find_button(&rest[1]).ok_or_else(|| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
                         format!(
-                            "无法识别的按键: {}（用 `md301ctl buttons names` 查看可用名称）",
+                            "无法识别的按键: {}（可用: 左键/右键/中键/左侧后键/左侧前键/DPI 切换键/滚轮上滚/滚轮下滚，或 0x1F0 这样的代码）",
                             rest[1]
                         ),
                     )
@@ -527,6 +533,131 @@ fn cmd_list() -> std::io::Result<()> {
             i.product
         );
     }
+    Ok(())
+}
+
+/// JSON 字符串转义（名字里可能带引号/反斜杠）
+fn jesc(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// GUI 契约：静态规格（能力表 + 功能码），一次获取后前端缓存。
+/// 选项列表以此为准，前端不要自己写死。
+fn cmd_spec_json() -> std::io::Result<()> {
+    let mut s = String::from("{\"caps\":{");
+    s.push_str(&format!(
+        "\"dpi_min\":{},\"dpi_max\":{},\"dpi_levels\":{},\"dpi_step\":50",
+        proto::DPI_MIN,
+        proto::DPI_MAX,
+        proto::DPI_LEVELS
+    ));
+    s.push_str(",\"polling_rates\":[");
+    for (i, (_, hz)) in proto::POLLING_RATES.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&hz.to_string());
+    }
+    s.push_str("],\"button_responses\":[");
+    for (i, (v, ms)) in proto::BUTTON_RESPONSES.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!("{{\"value\":{},\"ms\":{}}}", v, ms));
+    }
+    s.push_str("],\"sleep_times\":[");
+    for i in 0..5u8 {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!("{{\"value\":{},\"label\":\"{}\"}}", i, jesc(&sleep_label(i))));
+    }
+    s.push(']');
+    s.push_str("},\"buttons\":[");
+    // 名字取自 proto::BUTTON_TABLE（与 buttons map 能解析的名字同一张表）
+    for (i, (name, code)) in proto::BUTTON_TABLE.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!("{{\"name\":\"{}\",\"code\":{}}}", jesc(name), code));
+    }
+    s.push_str("],\"functions\":[");
+    for (i, (code, _en, _zh)) in proto::FUNC_TABLE.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!(
+            "{{\"code\":{},\"label\":\"{}\"}}",
+            code,
+            jesc(&func_name(*code))
+        ));
+    }
+    s.push_str("]}");
+    println!("{}", s);
+    Ok(())
+}
+
+/// GUI 契约：实时状态快照（一个对象，含设备/电源/DPI/性能/按键）。
+/// 任何一项读失败都返回错误（例如设备休眠），由前端提示用户。
+fn cmd_status_json(dev: &mut Md301) -> std::io::Result<()> {
+    let info = dev.info()?;
+    let pw = dev.power()?;
+    let pf = dev.performance()?;
+    let sensor = dev.sensor_mode().ok(); // 传感器模式要单独读；不支持时给 null
+    let base = dev.key_map()?;
+    let mut s = String::from("{\"device\":{");
+    s.push_str(&format!(
+        "\"version\":\"{}\",\"dongle_version\":\"{}\",\"profile_count\":{},\"current_profile\":{},\"dpi_index\":{},\"dpi_value\":{}",
+        jesc(&info.version),
+        jesc(&info.dongle_version),
+        info.profile_count,
+        info.current_profile,
+        info.dpi_index,
+        info.dpi_value
+    ));
+    s.push_str("},\"power\":{");
+    s.push_str(&format!(
+        "\"battery\":{},\"charging\":{},\"sleep_index\":{},\"low_power\":{},\"voltage_raw\":{},\"battery_type\":{},\"charging_effect\":{}",
+        pw.battery_percent,
+        pw.is_charging,
+        pw.sleep_time_index,
+        pw.low_power_percent,
+        pw.battery_voltage_raw,
+        pw.battery_type,
+        pw.full_charging_effect
+    ));
+    s.push_str("},\"dpi\":{");
+    s.push_str(&format!(
+        "\"levels\":[{},{},{}],\"count\":{},\"current_index\":{},\"current_value\":{}",
+        pf.dpi[0],
+        pf.dpi[1],
+        pf.dpi[2],
+        proto::DPI_LEVELS,
+        info.dpi_index,
+        info.dpi_value
+    ));
+    s.push_str("},\"perf\":{");
+    s.push_str(&format!(
+        "\"polling_usb_rf\":\"{}\",\"polling_ble\":\"{}\",\"polling_booster\":\"{}\",\"button_response\":{},\"button_response_ms\":{},\"angle_snapping\":{},\"angle_tuning\":{},\"sensor_mode\":{},\"fps_13k\":{}",
+        jesc(&polling_label(pf.polling_usbrf)),
+        jesc(&polling_label(pf.polling_ble)),
+        jesc(&polling_label(pf.polling_booster)),
+        pf.button_response,
+        proto::response_ms(pf.button_response).map(|m| m.to_string()).unwrap_or("null".into()),
+        pf.angle_snapping,
+        pf.angle_tuning,
+        sensor.map(|(m, _)| m.to_string()).unwrap_or("null".into()),
+        sensor.map(|(_, f)| f).unwrap_or(false)
+    ));
+    s.push_str("},\"buttons\":{");
+    for (i, (name, code)) in base.entries().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!("\"{}\":{}", jesc(name), code));
+    }
+    s.push_str("}}");
+    println!("{}", s);
     Ok(())
 }
 

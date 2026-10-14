@@ -245,6 +245,56 @@ pub fn func_name(code: u16) -> String {
     format!("Unknown(0x{:X})", code)
 }
 
+/// 鼠标上真实存在的可控按键（名字 → 物理功能码），与 `KeyMap::entries` 一致。
+pub const BUTTON_TABLE: [(&str, u16); 8] = [
+    ("左键", 0x1F0),
+    ("右键", 0x1F1),
+    ("中键", 0x1F2),
+    ("左侧后键", 0x1E4),
+    ("左侧前键", 0x1E5),
+    ("DPI 切换键", 0x1E6),
+    ("滚轮上滚", 0x1E8),
+    ("滚轮下滚", 0x1E9),
+];
+
+/// 解析"按键"参数（`buttons map <按键> <功能>` 的第一个参数）。
+///
+/// **不能用功能码表解析按键名**：`find_func("右键")` 会子串命中功能表中的
+/// `右键前侧 (0x1E1)`，把映射写到本机根本不存在的按键槽上（实测踩过这个坑）。
+/// 所以先按 `BUTTON_TABLE` 精确匹配（含常用别名），再退化到数字/`0x` 代码。
+pub fn find_button(spec: &str) -> Option<u16> {
+    let s = spec.trim();
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        return u16::from_str_radix(hex, 16).ok();
+    }
+    if let Ok(v) = s.parse::<u16>() {
+        return Some(v);
+    }
+    let alias = match s.to_lowercase().as_str() {
+        "左" => "左键",
+        "右" => "右键",
+        "中" | "中键按" => "中键",
+        "左后侧键" | "左后键" => "左侧后键",
+        "左前侧键" | "左前键" => "左侧前键",
+        "dpi切换" | "dpi键" | "dpi 键" => "DPI 切换键",
+        "上滚" | "滚轮上" => "滚轮上滚",
+        "下滚" | "滚轮下" => "滚轮下滚",
+        "侧键5" | "侧键 5" => return Some(0x1EE),
+        "侧键6" | "侧键 6" => return Some(0x1EF),
+        _ => s,
+    };
+    // 精确 → 忽略大小写 → 子串
+    BUTTON_TABLE
+        .iter()
+        .find(|(n, _)| *n == alias)
+        .or_else(|| {
+            let a = alias.to_lowercase();
+            BUTTON_TABLE.iter().find(|(n, _)| n.to_lowercase() == a)
+        })
+        .or_else(|| BUTTON_TABLE.iter().find(|(n, _)| n.contains(alias)))
+        .map(|(_, c)| *c)
+}
+
 pub fn find_func(spec: &str) -> Option<u16> {
     let s = spec.trim();
     if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
@@ -539,6 +589,34 @@ impl Md301 {
         })
     }
 
+    /// 探测型读取：**只试一次**、超时更短。
+    ///
+    /// 专用于设备"可能不支持"的能力（官方 caps 里 supportsAngleTuning /
+    /// supportsAngleSnapping / supportsMotionSync 为 false 的那些）。这类命令
+    /// 设备根本不会正确应答，用 `request_retry` 会白等 4 轮重试——实测
+    /// `sensor_mode` 一项就吃掉 5.8 秒，`status` 整体因此要 7.3 秒。
+    /// 探测不到就返回 `None`（= 不支持），而不是当成错误。
+    pub fn request_probe(
+        &mut self,
+        cmd: u8,
+        key: u8,
+        index: u16,
+        data: &[u8],
+        timeout_ms: u32,
+    ) -> io::Result<Option<[u8; PAYLOAD]>> {
+        match self.request(cmd, key, index, data, timeout_ms)? {
+            Some(r)
+                if r[0] == cmd
+                    && r[1] == key
+                    && r[2] == (index & 0xFF) as u8
+                    && r[3] == (index >> 8) as u8 =>
+            {
+                Ok(Some(r))
+            }
+            _ => Ok(None),
+        }
+    }
+
     // ------------------------------------------------------------ higher level
 
     /// True when the mouse answers with real data (it returns a stub while asleep).
@@ -629,7 +707,11 @@ impl Md301 {
     }
 
     pub fn sensor_mode(&mut self) -> io::Result<(u8, bool)> {
-        let r = self.request_retry(GET, 0x04, 0x05, &[], 1200)?;
+        // 该型号不支持：探测型读取（一次、短超时），省掉 4 轮重试的 4.8 秒。
+        // 语义与以前一致——**没拿到有效应答就报错**（调用方据此把 sensor_mode 输出为 null）
+        let r = self
+            .request_probe(GET, 0x04, 0x05, &[], 600)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "该型号不支持传感器模式查询"))?;
         Ok((r[4], r[5] == 0))
     }
 
@@ -657,7 +739,11 @@ impl Md301 {
     }
 
     pub fn add_key_map(&mut self) -> io::Result<AddKeyMap> {
-        let r = self.request_retry(GET, 0x05, 0x02, &[], 1200)?;
+        // 该型号不支持"附加按键表"：探测型读取，别白等 4 轮重试（实测省 5.8 秒）。
+        // 调用方用 `.ok()`，这里保持"取不到就报错"的语义不变。
+        let r = self
+            .request_probe(GET, 0x05, 0x02, &[], 600)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "该型号不支持附加按键表"))?;
         Ok(AddKeyMap {
             dpi2: le16(&r, 4),
             joystick_up: le16(&r, 6),
@@ -886,5 +972,30 @@ mod tests {
         assert_eq!(DPI_MAX, 8000);
         assert_eq!(DPI_MIN, 100);
         assert_eq!(DPI_LEVELS, 3);
+    }
+
+    #[test]
+    fn button_names_resolve_to_real_buttons() {
+        // "右键" 必须解析成真右键 0x1F1，而不是功能表里的 "右键前侧" 0x1E1
+        assert_eq!(find_button("右键"), Some(0x1F1));
+        assert_eq!(find_button("左键"), Some(0x1F0));
+        assert_eq!(find_button("中键"), Some(0x1F2));
+        assert_eq!(find_button("左侧后键"), Some(0x1E4));
+        assert_eq!(find_button("左后键"), Some(0x1E4));
+        assert_eq!(find_button("左侧前键"), Some(0x1E5));
+        assert_eq!(find_button("DPI 切换键"), Some(0x1E6));
+        assert_eq!(find_button("滚轮上滚"), Some(0x1E8));
+        assert_eq!(find_button("滚轮下滚"), Some(0x1E9));
+        assert_eq!(find_button("0x1E1"), Some(0x1E1));  // 显式代码仍可用
+        assert_eq!(find_button("496"), Some(496));
+        assert_eq!(find_button("不存在的键"), None);
+    }
+
+    #[test]
+    fn button_table_matches_keymap_entries() {
+        // spec --json 发的名字必须就是 buttons map 能接受的名字
+        for (name, code) in BUTTON_TABLE.iter() {
+            assert_eq!(find_button(name), Some(*code), "{name} 无法被解析");
+        }
     }
 }

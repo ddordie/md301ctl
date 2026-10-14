@@ -1,0 +1,2 @@
+# 只装 Essentials 就够（QML + QtQuick Controls），完整 PySide6 含 WebEngine 等，体积大得多
+PySide6-Essentials>=6.6
