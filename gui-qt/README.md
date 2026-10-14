@@ -89,6 +89,29 @@ FigCraft 画的原型 → 导出 → 我照它改：
   设备值未被改动（写的是原值）；
 - 设备射频休眠时，状态栏显示 CLI 报的原话（如「设备处于射频休眠…」），值不会被覆盖。
 
+## 打包成单文件 exe（给不装 Python 的人用）
+
+```bash
+uv pip install --python .venv/Scripts/python.exe pyinstaller
+.venv/Scripts/pyinstaller.exe --noconfirm --onefile --windowed --name md301ctl-qt \
+  --add-data 'qml;qml' \
+  --add-binary '../target/release/md301ctl.exe;.' \
+  --collect-data PySide6 \
+  app.py
+```
+
+要点：
+
+- `--add-data 'qml;qml'` 必须加，否则运行时找不到 QML；
+- `--add-binary '...;.'` 把 Rust CLI 打进包里，`backend.py` 会优先用 `sys._MEIPASS`
+  里那份，所以拷到任何机器上都能独立跑；
+- 产物 `dist/md301ctl-qt.exe` 约 81 MB（Qt 运行时 + QML 模块占绝大部分），
+  **首次启动约 8 秒**（单文件模式每次启动都要把包解到临时目录）；想要秒开就改成
+  `--onedir`（启动 1–2 秒，但产物是一个文件夹）；
+- 检查包里确实带着后端和 QML：
+  `.venv/Scripts/pyi-archive_viewer.exe -l dist/md301ctl-qt.exe | grep -E 'md301ctl.exe|Main.qml'`；
+- 未做代码签名，Windows 可能提示 SmartScreen（"更多信息 → 仍要运行"）。
+
 ## 已知限制
 
 - 一条 `status --json` 约 0.7–2 秒（设备 RF 链路本身慢），所以刷新时状态栏会短暂显示「读取中…」；

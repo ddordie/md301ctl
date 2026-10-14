@@ -20,8 +20,12 @@ from typing import Any, Callable
 
 from PySide6.QtCore import Property, QObject, QProcess, QTimer, Signal, Slot
 
-# 兜底：找到 md301ctl.exe 的几个常见位置（仓库里、桌面、PATH）
+# 兜底：找到 md301ctl.exe 的几个常见位置（仓库里、打包后的 exe 旁边、桌面、PATH）
 _CANDIDATES = [
+    # 打包成单文件 exe 时：PyInstaller 解包目录、以及与 Qt 壳 exe 同目录
+    os.path.join(getattr(sys, "_MEIPASS", ""), "md301ctl.exe"),
+    os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "md301ctl.exe"),
+    # 源码运行：仓库的 target/release 或本目录
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "target", "release", "md301ctl.exe"),
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "md301ctl.exe"),
     os.path.expanduser("~/Desktop/md301ctl.exe"),

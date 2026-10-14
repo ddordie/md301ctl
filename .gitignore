@@ -6,3 +6,8 @@
 # 本地虚拟环境（逆向/脚本用）
 .venv/
 __pycache__/
+
+# PyInstaller 产物（单文件 exe 80MB 级，不入库）
+gui-qt/build/
+gui-qt/dist/
+gui-qt/*.spec
