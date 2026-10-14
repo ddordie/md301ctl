@@ -74,6 +74,8 @@ md301ctl status --json   # 实时快照，一次调用一个对象
 `perf response <0-5>`、`buttons map <按键名> <功能码>`、`profile set <档>`、
 `perf save`、`profile reset-all --yes`。
 
+![界面](../docs/screenshot.png)
+
 ## 界面结构（按设计稿还原）
 
 设计稿（1280×720 画布）拆成两层：
