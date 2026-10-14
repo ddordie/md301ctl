@@ -57,6 +57,28 @@ Window {
                 anchors.leftMargin: Theme.pad + 4
                 anchors.rightMargin: Theme.pad
                 spacing: 10
+                // Logo：原始图标是白底方块，所以放在白色圆角徽章里（并裁掉直角）
+                Rectangle {
+                    Layout.preferredWidth: 34
+                    Layout.preferredHeight: 34
+                    radius: 9
+                    color: "#FFFFFF"
+                    clip: true
+                    Image {
+                        anchors.fill: parent
+                        source: "../assets/logo.svg"
+                        sourceSize: Qt.size(68, 68)     // 2x 光栅化，边缘更干净
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 9
+                        color: "transparent"
+                        border.color: Theme.line
+                        border.width: 1
+                    }
+                }
                 Rectangle {
                     width: 9; height: 9; radius: 4.5
                     color: backend.error ? Theme.warn : Theme.ok

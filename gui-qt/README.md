@@ -95,6 +95,8 @@ FigCraft 画的原型 → 导出 → 我照它改：
 uv pip install --python .venv/Scripts/python.exe pyinstaller
 .venv/Scripts/pyinstaller.exe --noconfirm --onefile --windowed --name md301ctl-qt \
   --add-data 'qml;qml' \
+  --add-data 'assets;assets' \
+  --icon assets/logo.ico \
   --add-binary '../target/release/md301ctl.exe;.' \
   --collect-data PySide6 \
   app.py
@@ -111,6 +113,19 @@ uv pip install --python .venv/Scripts/python.exe pyinstaller
 - 检查包里确实带着后端和 QML：
   `.venv/Scripts/pyi-archive_viewer.exe -l dist/md301ctl-qt.exe | grep -E 'md301ctl.exe|Main.qml'`；
 - 未做代码签名，Windows 可能提示 SmartScreen（"更多信息 → 仍要运行"）。
+
+## Logo / 图标
+
+- `assets/logo.svg` 是**用户提供的应用图标**，由它生成：
+  - `assets/logo.ico` —— 7 种尺寸（16/24/32/48/64/128/256），用于窗口图标与打包进 exe；
+  - `assets/logo-256.png` —— 单张 256px，用作兜底。
+- 重新生成（改了 SVG 之后）：
+  `scripts/gen_assets.py assets/logo.svg assets/logo-256.png assets/logo.ico`
+  （脚本在仓库根的 `scripts/`，用 QtSvg 渲染，ICO 容器自己拼，不需要 Pillow）
+- 图标是白底方块，所以在暗色标题栏里放在**白色圆角徽章**中（`qml/Main.qml` 顶部）；
+  QML 里用 `sourceSize: Qt.size(68, 68)` 做 2x 光栅化，边缘才不糊。
+- **许可边界**：`assets/` 下的图标为用户提供，不在本项目 MIT 许可范围内；
+  ProArt / ASUS 等名称与标识的权利归其所有者。
 
 ## 已知限制
 

@@ -12,7 +12,7 @@ import os
 import sys
 
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QPalette
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPalette
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 
@@ -49,6 +49,15 @@ def main() -> int:
     pal.setColor(QPalette.ToolTipBase, QColor("#1A1E26"))
     pal.setColor(QPalette.ToolTipText, QColor("#E9ECF2"))
     app.setPalette(pal)
+
+    # 窗口/任务栏图标（assets/logo.ico 里含 16–256 多种尺寸）
+    icon_path = os.path.join(HERE, "assets", "logo.ico")
+    if not os.path.isfile(icon_path):
+        icon_path = os.path.join(HERE, "assets", "logo-256.png")
+    if os.path.isfile(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+    else:
+        print(f"图标未找到: {icon_path}", file=sys.stderr)
 
     backend = Backend()
 
